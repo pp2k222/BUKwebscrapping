@@ -5,7 +5,7 @@ const LinkDoLigi =
 const puppeteer = require("puppeteer");
 const ExcelJS = require("exceljs");
 const PORT = process.env.PORT || 3000;  // Jeśli PORT nie jest ustawiony, używaj 3000 (lokalnie)
-
+const app = express();
 app.get("/", (req, res) => {
   res.send("Hello, world!");
 });
