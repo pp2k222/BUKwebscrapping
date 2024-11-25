@@ -4,7 +4,15 @@ const LinkDoLigi =
 
 const puppeteer = require("puppeteer");
 const ExcelJS = require("exceljs");
+const PORT = process.env.PORT || 3000;  // Jeśli PORT nie jest ustawiony, używaj 3000 (lokalnie)
 
+app.get("/", (req, res) => {
+  res.send("Hello, world!");
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
 (async () => {
   const mainBrowser = await puppeteer.launch({
     headless: true,
