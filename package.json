@@ -1,8 +1,9 @@
 {
   "name": "bukwebscrapping",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "scrape.js",
   "scripts": {
+    "start": "node scrape.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
