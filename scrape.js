@@ -20,7 +20,7 @@ app.get('/scrape', async (req, res) => {
     });
 
     const mainPage = await mainBrowser.newPage();
-    await mainPage.goto(LinkDoLigi);
+    await mainPage.goto(LinkDoLigi, { waitUntil: 'networkidle0', timeout: 60000 });
     await mainPage.waitForSelector(".eventRowLink");
 
     const links = await mainPage.evaluate(() => {
