@@ -46,7 +46,7 @@ app.get('/scrape', async (req, res) => {
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
       });
       const page = await clientBrowser.newPage();
-      await page.goto(link);
+      await page.goto(link, { waitUntil: 'networkidle0', timeout: 60000 });
       try {
         await page.waitForSelector("#detail");
 
