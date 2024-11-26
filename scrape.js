@@ -1,7 +1,7 @@
 const MaksymalnaLiczbaMeczy = 100;
 const LinkDoLigi =
   "https://www.flashscore.pl/pilka-nozna/anglia/premier-league/wyniki/";
-
+const express = require("express");
 const puppeteer = require("puppeteer");
 const ExcelJS = require("exceljs");
 const PORT = process.env.PORT || 3000;  // Jeśli PORT nie jest ustawiony, używaj 3000 (lokalnie)
