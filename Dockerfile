@@ -1,18 +1,8 @@
 # Wybierz bazowy obraz Node.js
 FROM node:18-slim
 
-# Ustaw katalog roboczy
-WORKDIR /usr/src/app
-
-# Skopiuj pliki projektu (pierw kopiuj package*.json, potem resztę)
-COPY package*.json ./
-
-# Zainstaluj zależności
-RUN npm install
-
-# Zainstaluj dodatkowe zależności systemowe dla Puppeteera
+# Zainstaluj zależności systemowe i Chromium
 RUN apt-get update && apt-get install -y \
-    chromium \
     wget \
     ca-certificates \
     fonts-liberation \
@@ -29,13 +19,25 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
-    --no-install-recommends && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Ustawienie zmiennej środowiskowej dla Puppeteera
+# Zainstaluj Chromium z repozytorium Google
+RUN apt-get update && apt-get install -y \
+    chromium
+
+# Ustawienie zmiennej środowiskowej, aby Puppeteer wiedział, gdzie znaleźć Chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Skopiuj resztę aplikacji do kontenera
+# Ustaw katalog roboczy
+WORKDIR /usr/src/app
+
+# Skopiuj pliki projektu
+COPY package*.json ./
+
+# Zainstaluj zależności projektu
+RUN npm install
+
+# Skopiuj resztę aplikacji
 COPY . .
 
 # Otwórz port 3000
