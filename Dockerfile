@@ -4,9 +4,8 @@ FROM node:18-slim
 # Ustaw katalog roboczy
 WORKDIR /usr/src/app
 
-# Skopiuj pliki projektu
+# Skopiuj pliki projektu (pierw kopiuj package*.json, potem resztę)
 COPY package*.json ./
-COPY . .
 
 # Zainstaluj zależności
 RUN npm install
@@ -32,19 +31,15 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     --no-install-recommends && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-# Zainstaluj aplikację Node.js
-WORKDIR /usr/src/app
-COPY package*.json ./
-RUN npm install
-COPY . .
 
 # Ustawienie zmiennej środowiskowej dla Puppeteera
-#ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Skopiuj resztę aplikacji do kontenera
+COPY . .
 
 # Otwórz port 3000
 EXPOSE 3000
 
 # Uruchom aplikację
 CMD ["npm", "start"]
-
