@@ -2,7 +2,7 @@ const MaksymalnaLiczbaMeczy = 100;
 const LinkDoLigi =
   "https://www.flashscore.pl/pilka-nozna/anglia/premier-league/wyniki/";
 
-const puppeteer = require("puppeteer");
+const puppeteer = require('puppeteer-core');
 const ExcelJS = require("exceljs");
 const PORT = process.env.PORT || 3000;  // Jeśli PORT nie jest ustawiony, używaj 3000 (lokalnie)
 
@@ -15,6 +15,7 @@ app.listen(PORT, () => {
 });
 (async () => {
   const mainBrowser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium',  // Ścieżka do Chromium zainstalowanego w kontenerze
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
