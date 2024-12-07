@@ -1,8 +1,21 @@
 # Wybierz bazowy obraz Node.js
 FROM node:18-slim
 
-# Zainstaluj zależności systemowe i Chromium
+# Ustaw katalog roboczy
+WORKDIR /usr/src/app
+
+# Skopiuj pliki projektu
+COPY package*.json ./
+
+# Zainstaluj zależności aplikacji
+RUN npm install
+
+# Skopiuj pozostałe pliki aplikacji
+COPY . .
+
+# Zainstaluj dodatkowe zależności systemowe dla Puppeteera
 RUN apt-get update && apt-get install -y \
+    chromium \
     wget \
     ca-certificates \
     fonts-liberation \
@@ -19,29 +32,14 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    --no-install-recommends && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Zainstaluj Chromium z repozytorium Google
-RUN apt-get update && apt-get install -y \
-    chromium
-
-# Ustawienie zmiennej środowiskowej, aby Puppeteer wiedział, gdzie znaleźć Chromium
+# Ustawienie zmiennej środowiskowej dla Puppeteera
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Ustaw katalog roboczy
-WORKDIR /usr/src/app
-
-# Skopiuj pliki projektu
-COPY package*.json ./
-
-# Zainstaluj zależności projektu
-RUN npm install
-
-# Skopiuj resztę aplikacji
-COPY . .
-
-# Otwórz port 3000
+# Otwórz port 3000 (jeśli aplikacja działa na tym porcie)
 EXPOSE 3000
 
-# Uruchom aplikację
-CMD ["npm", "start"]
+# Uruchom aplikację, wskazując na plik serve.js
+CMD ["node", "serve.js"]
