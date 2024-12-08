@@ -1,222 +1,174 @@
-const MaksymalnaLiczbaMeczy = 100;
-const LinkDoLigi =
-  "https://www.flashscore.pl/pilka-nozna/anglia/premier-league/wyniki/";
-
-const puppeteer = require('puppeteer-core');
+const express = require("express");
+const puppeteer = require("puppeteer");
 const ExcelJS = require("exceljs");
-const PORT = process.env.PORT || 3000;  // Jeśli PORT nie jest ustawiony, używaj 3000 (lokalnie)
+const cors = require("cors");
 
-app.get("/", (req, res) => {
-  res.send("Hello, world!");
-});
+const app = express();
+app.use(cors());
+const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-(async () => {
-  const mainBrowser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium',  // Ścieżka do Chromium zainstalowanego w kontenerze
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  const mainPage = await mainBrowser.newPage();
-  await mainPage.goto(LinkDoLigi, { waitUntil: 'networkidle0', timeout: 60000 });
-  await mainPage.waitForSelector(".eventRowLink");
+app.get("/scrape", async (req, res) => {
+  const { leagueUrl, maxMatches } = req.query;
+  const maxLinks = maxMatches ? parseInt(maxMatches, 10) : 100;
 
-  const links = await mainPage.evaluate(() => {
-    return Array.from(document.querySelectorAll(".eventRowLink")).map(
-      (a) => a.href + "/statystyki-meczu/0"
-    );
-  });
-  const linksDetails = await mainPage.evaluate(() => {
-    return Array.from(document.querySelectorAll(".eventRowLink")).map(
-      (a) => a.href + "/szczegoly-meczu"
-    );
-  });
-  const allData = [];
-  let events = [];
-  const maxLinks = MaksymalnaLiczbaMeczy;
-  let count = 0;
-  for (const link of linksDetails) {
-    if (count >= maxLinks) break;
-
-    const clientBrowser = await puppeteer.launch({
+  try {
+    const browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
-    const page = await clientBrowser.newPage();
-    await page.goto(link);
-    try {
-      await page.waitForSelector("#detail");
 
-      const [homeTeam, awayTeam] = await page.evaluate(() => {
-        const home = document.querySelector(".duelParticipant__home");
-        const away = document.querySelector(".duelParticipant__away");
-        return [
-          home ? home.innerText.trim() : null,
-          away ? away.innerText.trim() : null
-        ];
-      });
+    const page = await browser.newPage();
+    await page.goto(leagueUrl, { waitUntil: "networkidle0" });
+    await page.waitForSelector(".eventRowLink");
 
-      console.log(`Home Team: ${homeTeam}, Away Team: ${awayTeam}`);
+    const links = await page.evaluate(() =>
+      Array.from(document.querySelectorAll(".eventRowLink")).map(
+        (a) => a.href + "/statystyki-meczu/0"
+      )
+    );
+    const linksDetails = await page.evaluate(() =>
+      Array.from(document.querySelectorAll(".eventRowLink")).map(
+        (a) => a.href + "/szczegoly-meczu"
+      )
+    );
 
-      eventsOneMatch = await page.evaluate(() => {
-        const rows = document.querySelectorAll(".smv__participantRow");
-        return Array.from(rows).map((section) => {
-          const timeBox = section.querySelector(".smv__timeBox");
-          const playerName = section.querySelector(".smv__playerName");
+    const allData = [];
+    const events = [];
+    let count = 0;
 
-          const eventTypeIcon = section.querySelector(
-            ".smv__incidentIcon use, .smv__incidentIconSub use"
-          );
-          const eventTitle = eventTypeIcon ? eventTypeIcon.getAttribute("xlink:href") : null;
-          const eventDescription =
-            eventTypeIcon && eventTypeIcon.closest("div") ? eventTypeIcon.closest("div").getAttribute("title") : "";
+    // Pobieranie danych szczegółowych
+    for (const link of linksDetails) {
+      if (count >= maxLinks) break;
 
-          const eventTypeSocker = section.querySelector(
-            ".smv__incidentIcon .soccer"
-          );
-          // Określenie typu zdarzenia
-          let eventType = "Inne";
-          if (eventTitle && eventTitle.includes("card")) {
-            eventType = eventDescription.includes("żółta")
-              ? "Żółta kartka"
-              : "Czerwona kartka";
-          } else if (eventTypeSocker) {
-            eventType = "Bramka";
-          } else if (eventTitle && eventTitle.includes("substitution")) {
-            eventType = "Zmiana";
-          }
+      const matchPage = await browser.newPage();
+      try {
+        await matchPage.goto(link, { waitUntil: "networkidle0", timeout: 60000 });
+        await matchPage.waitForSelector("#detail");
 
-          return {
-            time: timeBox ? timeBox.innerText.trim() : null,
-            player: playerName ? playerName.innerText.trim() : null,
-            incidentTitle: eventType,
-          };
+        const eventsOneMatch = await matchPage.evaluate(() => {
+          const rows = document.querySelectorAll(".smv__participantRow");
+          return Array.from(rows).map((section) => {
+            const timeBox = section.querySelector(".smv__timeBox");
+            const playerName = section.querySelector(".smv__playerName");
+            const eventTypeIcon = section.querySelector(
+              ".smv__incidentIcon use, .smv__incidentIconSub use"
+            );
+            const eventTitle = eventTypeIcon
+              ? eventTypeIcon.getAttribute("xlink:href")
+              : null;
+            const eventDescription =
+              eventTypeIcon?.closest("div").getAttribute("title") || "";
+
+            let eventType = "Inne";
+            if (eventTitle && eventTitle.includes("card")) {
+              eventType = eventDescription.includes("żółta")
+                ? "Żółta kartka"
+                : "Czerwona kartka";
+            } else if (eventTitle && eventTitle.includes("goal")) {
+              eventType = "Bramka";
+            } else if (eventTitle && eventTitle.includes("substitution")) {
+              eventType = "Zmiana";
+            }
+
+            return {
+              time: timeBox ? timeBox.innerText.trim() : null,
+              player: playerName ? playerName.innerText.trim() : null,
+              event: eventType,
+            };
+          });
         });
-      });
 
-      events.push(eventsOneMatch);
-    } catch (err) {
-      console.warn("Element #detail nie został znaleziony.");
+        events.push(eventsOneMatch);
+      } catch (err) {
+        console.warn(`Błąd podczas przetwarzania szczegółów meczu: ${err.message}`);
+      } finally {
+        await matchPage.close();
+      }
+      count++;
     }
-    count++;
-    await clientBrowser.close();
-  }
 
-  count = 0;
-  for (const link of links) {
-    if (count >= maxLinks) break;
+    // Pobieranie danych statystycznych
+    count = 0;
+    for (const link of links) {
+      if (count >= maxLinks) break;
 
-    const clientBrowser = await puppeteer.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-    const page = await clientBrowser.newPage();
-    await page.goto(link);
-    try {
-      await page.waitForSelector("#detail");
+      const matchPage = await browser.newPage();
+      try {
+        await matchPage.goto(link, { waitUntil: "networkidle0", timeout: 60000 });
+        await matchPage.waitForSelector("#detail");
 
-      const [homeTeam, awayTeam, score] = await page.evaluate(() => {
-        const home = document.querySelector(".duelParticipant__home");
-        const away = document.querySelector(".duelParticipant__away");
-        const score = document.querySelector(".detailScore__wrapper");
-        return [
-          home ? home.innerText.trim() : null,
-          away ? away.innerText.trim() : null,
-          score ? score.innerText.trim() : null,
-        ];
-      });
+        const matchData = await matchPage.evaluate(() => {
+          const detailElement = document.getElementById("detail");
+          const section = detailElement.querySelectorAll(":scope > .section")[0];
+          return section.innerText.trim().split("\n");
+        });
 
-      console.log(`Home Team: ${homeTeam}, Away Team: ${awayTeam}`);
+        const cleanedData = matchData.filter((data) => data.trim().length > 0);
 
-      sectionData = await page.evaluate(() => {
-        const detailElement = document.getElementById("detail");
-        const section = detailElement.querySelectorAll(":scope > .section")[0];
-        return section ? section.innerText.trim() : "";
-      });
-
-      if (sectionData.length > 0) {
-        console.log(`Pobrano dane z ${link}`);
-
-        const cleanedData = sectionData
-          .split("\n")
-          .map((data) => data.trim())
-          .filter((data) => data.length > 0);
-        let onematch = [];
+        let matchStats = [];
         for (let i = 0; i < cleanedData.length; i += 3) {
           if (i + 2 < cleanedData.length) {
             const homeValue = cleanedData[i];
             const label = cleanedData[i + 1];
             const awayValue = cleanedData[i + 2];
-            console.log(
-              `Pobieram: ${label} - Gospodarze: ${homeValue}, Goście: ${awayValue}`
-            );
-
-            onematch.push({
-              label: label,
-              home: homeValue,
-              away: awayValue,
-              match: `${homeTeam} vs ${awayTeam} ${score.replace(
-                /\r?\n|\r/g,
-                " "
-              )}`,
-            });
+            matchStats.push({ home: homeValue, label, away: awayValue });
           }
         }
-        allData.push(onematch);
-      } else {
-        console.log(`Brak danych dla meczu ${homeTeam} vs ${awayTeam}`);
+
+        allData.push(matchStats);
+      } catch (err) {
+        console.warn(`Błąd podczas pobierania statystyk meczu: ${err.message}`);
+      } finally {
+        await matchPage.close();
       }
-    } catch (err) {
-      console.warn("Element #detail nie został znaleziony.");
+      count++;
     }
 
-    count++;
-    await clientBrowser.close();
-  }
+    await browser.close();
 
-  await mainBrowser.close();
-  console.log(events.length);
-  console.log(allData.length);
-  const mergedData = [];
-  let mergedObject;
-  for (let i = 0; i < allData.length; i++) {
-    const data = allData[i];
-    const details = events[i];
-    let max = data.length;
-    if (details.length > max) max = details.length;
+    // Tworzenie pliku Excel
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Statystyki");
 
-    for (let j = 0; j < max; j++) {
-      mergedData.push({
-        label: data[j] ? data[j].label : null,
-        home: data[j] ? data[j].home : null,
-        away: data[j] ? data[j].away : null,
-        match: data[j] ? data[j].match : null,
-        time: details[j] ? details[j].time : null,
-        player: details[j] ? details[j].player : null,
-        event: details[j] ? details[j].incidentTitle : null,
+    worksheet.columns = [
+      { header: "Statystyka", key: "label", width: 30 },
+      { header: "Gospodarze", key: "home", width: 15 },
+      { header: "Goście", key: "away", width: 15 },
+      { header: "Czas", key: "time", width: 15 },
+      { header: "Zawodnik", key: "player", width: 30 },
+      { header: "Zdarzenie", key: "event", width: 30 },
+    ];
+
+    const mergedData = [];
+    for (let i = 0; i < allData.length; i++) {
+      const stats = allData[i];
+      const matchEvents = events[i];
+      stats.forEach((stat, idx) => {
+        mergedData.push({
+          label: stat.label,
+          home: stat.home,
+          away: stat.away,
+          time: matchEvents[idx]?.time || null,
+          player: matchEvents[idx]?.player || null,
+          event: matchEvents[idx]?.event || null,
+        });
       });
     }
+
+    mergedData.forEach((data) => {
+      worksheet.addRow(data);
+    });
+
+    const filePath = "./statystyki.xlsx";
+    await workbook.xlsx.writeFile(filePath);
+
+    res.download(filePath);
+  } catch (err) {
+    console.error("Błąd podczas przetwarzania:", err.message);
+    res.status(500).send("Wystąpił błąd.");
   }
+});
 
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Statystyki");
-
-  worksheet.columns = [
-    { header: "Statystyka", key: "label", width: 30 },
-    { header: "Gospodarze", key: "home", width: 15 },
-    { header: "Goście", key: "away", width: 15 },
-    { header: "Mecz", key: "match", width: 30 },
-    { header: "Mecz", key: "time", width: 30 },
-    { header: "Mecz", key: "player", width: 30 },
-    { header: "Mecz", key: "incidentTitle", width: 30 },
-  ];
-
-  mergedData.forEach((data) => {
-    worksheet.addRow(data);
-  });
-
-  await workbook.xlsx.writeFile("statystyki.xlsx");
-  console.log("Dane zostały zapisane do pliku statystyki.xlsx");
-})();
+app.listen(PORT, () => {
+  console.log(`Serwer działa na porcie ${PORT}`);
+});

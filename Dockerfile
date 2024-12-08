@@ -7,11 +7,8 @@ WORKDIR /usr/src/app
 # Skopiuj pliki projektu
 COPY package*.json ./
 
-# Zainstaluj zależności aplikacji
-RUN npm install
-
-# Skopiuj pozostałe pliki aplikacji
-COPY . .
+# Zainstaluj zależności aplikacji oraz pakiet CORS
+RUN npm install cors && npm install
 
 # Zainstaluj dodatkowe zależności systemowe dla Puppeteera
 RUN apt-get update && apt-get install -y \
@@ -34,12 +31,14 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     --no-install-recommends && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Ustawienie zmiennej środowiskowej dla Puppeteera
+    
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Otwórz port 3000 (jeśli aplikacja działa na tym porcie)
+# Skopiuj pozostałe pliki projektu
+COPY . .
+
+# Otwórz port 3000
 EXPOSE 3000
 
-# Uruchom aplikację, wskazując na plik serve.js
-CMD ["node", "serve.js"]
+# Uruchom aplikację
+CMD ["npm", "start"]
