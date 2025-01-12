@@ -8,8 +8,17 @@ app.use(cors());
 const PORT = process.env.PORT || 3000;
 
 app.get("/scrape", async (req, res) => {
-  const { leagueUrl, maxMatches } = req.query;
+  const { leagueUrl, maxMatches, half } = req.query;
   const maxLinks = maxMatches ? parseInt(maxMatches, 10) : 100;
+
+  let matchHalf = "0";
+  if (half === "full") {
+    matchHalf = "0";
+  } else if (half === "first") {
+    matchHalf = "1";
+  } else if (half === "second") {
+    matchHalf = "2";
+  }
 
   try {
     const browser = await puppeteer.launch({
@@ -18,30 +27,35 @@ app.get("/scrape", async (req, res) => {
     });
 
     const page = await browser.newPage();
+    console.log(`Przechodzę do URL: ${leagueUrl}`);
     await page.goto(leagueUrl, { waitUntil: "networkidle0" });
     await page.waitForSelector(".eventRowLink");
 
-    const links = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".eventRowLink")).map(
-        (a) => a.href + "/statystyki-meczu/0"
-      )
-    );
+    const links = await page.evaluate((matchHalf) => {
+      return Array.from(document.querySelectorAll(".eventRowLink")).map(
+        (a) => a.href + "/statystyki-meczu/" + matchHalf
+      );
+    }, matchHalf);
+
     const linksDetails = await page.evaluate(() =>
       Array.from(document.querySelectorAll(".eventRowLink")).map(
         (a) => a.href + "/szczegoly-meczu"
       )
     );
 
+    console.log(`Znaleziono ${links.length} linków do statystyk.`);
+    console.log(`Znaleziono ${linksDetails.length} linków do szczegółów.`);
+
     const allData = [];
     const events = [];
     let count = 0;
 
-    // Pobieranie danych szczegółowych
     for (const link of linksDetails) {
       if (count >= maxLinks) break;
 
       const matchPage = await browser.newPage();
       try {
+        console.log(`Przetwarzanie szczegółów meczu: ${link}`);
         await matchPage.goto(link, { waitUntil: "networkidle0", timeout: 60000 });
         await matchPage.waitForSelector("#detail");
 
@@ -53,32 +67,58 @@ app.get("/scrape", async (req, res) => {
             const eventTypeIcon = section.querySelector(
               ".smv__incidentIcon use, .smv__incidentIconSub use"
             );
+        
             const eventTitle = eventTypeIcon
               ? eventTypeIcon.getAttribute("xlink:href")
               : null;
-            const eventDescription =
-              eventTypeIcon?.closest("div").getAttribute("title") || "";
-
+        
             let eventType = "Inne";
-            if (eventTitle && eventTitle.includes("card")) {
-              eventType = eventDescription.includes("żółta")
-                ? "Żółta kartka"
-                : "Czerwona kartka";
-            } else if (eventTitle && eventTitle.includes("goal")) {
-              eventType = "Bramka";
-            } else if (eventTitle && eventTitle.includes("substitution")) {
-              eventType = "Zmiana";
+            if (eventTitle) {
+              if (eventTitle.includes("yellowCard")) {
+                eventType = "Żółta kartka";
+              } else if (eventTitle.includes("var")) {
+                eventType = "VAR";
+              } else if (eventTitle.includes("redCard")) {
+                eventType = "Czerwona kartka";
+              } else if (eventTitle.includes("soccerBall")) {
+                eventType = "Bramka";
+              } else if (eventTitle.includes("substitution")) {
+                eventType = "Zmiana";
+              }
             }
-
+        
             return {
               time: timeBox ? timeBox.innerText.trim() : null,
               player: playerName ? playerName.innerText.trim() : null,
-              event: eventType,
+              event: eventType, // Zmieniony typ wydarzenia
             };
           });
         });
+        
 
+        console.log(`Wydarzenia meczu:`, eventsOneMatch);
         events.push(eventsOneMatch);
+        
+
+        const scoreElements = Array.from(
+          document.querySelectorAll(".smv__incidentAwayScore, .smv__incidentHomeScore")
+        );
+        scoreElements.forEach((scoreElement) => {
+          const timeBox = scoreElement.closest('.smv__participantRow').querySelector(".smv__timeBox");
+          const time = timeBox ? timeBox.innerText.trim() : "Nieznany czas";
+      
+          processedEvents.push({
+            time: time,  
+            player: "",  
+            event: `Wynik: ${scoreElement.innerText.trim()}`,
+          });
+        });
+      
+        return processedEvents;
+     
+      
+      events.push(eventsOneMatch);
+
       } catch (err) {
         console.warn(`Błąd podczas przetwarzania szczegółów meczu: ${err.message}`);
       } finally {
@@ -87,44 +127,98 @@ app.get("/scrape", async (req, res) => {
       count++;
     }
 
-    // Pobieranie danych statystycznych
     count = 0;
     for (const link of links) {
       if (count >= maxLinks) break;
 
-      const matchPage = await browser.newPage();
+      const statsPage = await browser.newPage();
       try {
-        await matchPage.goto(link, { waitUntil: "networkidle0", timeout: 60000 });
-        await matchPage.waitForSelector("#detail");
+        console.log(`Przetwarzanie statystyk meczu: ${link}`);
+        await statsPage.goto(link, { waitUntil: "networkidle0", timeout: 60000 });
+        await statsPage.waitForSelector("#detail");
 
-        const matchData = await matchPage.evaluate(() => {
-          const detailElement = document.getElementById("detail");
-          const section = detailElement.querySelectorAll(":scope > .section")[0];
-          return section.innerText.trim().split("\n");
+        const [homeTeam, awayTeam, score] = await statsPage.evaluate(() => {
+          const home = document
+            .querySelector(".duelParticipant__home")
+            ?.innerText.trim();
+          const away = document
+            .querySelector(".duelParticipant__away")
+            ?.innerText.trim();
+          const score = document
+            .querySelector(".detailScore__wrapper")
+            ?.innerText.trim();
+          return [home, away, score];
         });
 
-        const cleanedData = matchData.filter((data) => data.trim().length > 0);
+        console.log(`Mecz: ${homeTeam} vs ${awayTeam}, Wynik: ${score}`);
 
-        let matchStats = [];
+        const sectionData = await statsPage.evaluate(() => {
+          const detailElement = document.getElementById("detail");
+          const section = detailElement.querySelectorAll(":scope > .section")[0];
+          return section.innerText.trim();
+        });
+
+        const cleanedData = sectionData
+          .split("\n")
+          .map((data) => data.trim())
+          .filter((data) => data.length > 0);
+
+        console.log(`Dane statystyczne (surowe):`, cleanedData);
+
+        const matchStats = [];
         for (let i = 0; i < cleanedData.length; i += 3) {
           if (i + 2 < cleanedData.length) {
-            const homeValue = cleanedData[i];
-            const label = cleanedData[i + 1];
-            const awayValue = cleanedData[i + 2];
-            matchStats.push({ home: homeValue, label, away: awayValue });
+            matchStats.push({
+              label: cleanedData[i + 1],
+              home: cleanedData[i],
+              away: cleanedData[i + 2],
+              match: `${homeTeam} vs ${awayTeam} (${score})`,
+            });
           }
         }
 
+        console.log(`Dane statystyczne (przetworzone):`, matchStats);
         allData.push(matchStats);
       } catch (err) {
-        console.warn(`Błąd podczas pobierania statystyk meczu: ${err.message}`);
+        console.warn("Błąd podczas pobierania danych statystycznych:", err.message);
       } finally {
-        await matchPage.close();
+        await statsPage.close();
       }
       count++;
     }
 
     await browser.close();
+
+    // Łączenie danych statystyk i wydarzeń
+    const mergedData = [];
+    console.log("Scalanie danych...");
+    for (let i = 0; i < allData.length; i++) {
+      const data = allData[i];
+      const details = events[i];
+      let max = data.length;
+      if (details.length > max) max = details.length;
+
+      for (let j = 0; j < max; j++) {
+        mergedData.push({
+          label: data[j]?.label,
+          home: data[j]?.home,
+          away: data[j]?.away,
+          match: data[j]?.match,
+          time: details[j]?.time,
+          player: details[j]?.player,
+          event: details[j]?.event,
+        });
+      }
+      mergedData.push({
+        label: "",
+        home: "",
+        away: "",
+        match: "",
+        time: "",
+        player: "",
+        event: "",
+      });
+    }
 
     // Tworzenie pliku Excel
     const workbook = new ExcelJS.Workbook();
@@ -134,26 +228,11 @@ app.get("/scrape", async (req, res) => {
       { header: "Statystyka", key: "label", width: 30 },
       { header: "Gospodarze", key: "home", width: 15 },
       { header: "Goście", key: "away", width: 15 },
+      { header: "Mecz", key: "match", width: 30 },
       { header: "Czas", key: "time", width: 15 },
-      { header: "Zawodnik", key: "player", width: 30 },
-      { header: "Zdarzenie", key: "event", width: 30 },
+      { header: "Gracz", key: "player", width: 30 },
+      { header: "Wydarzenie", key: "event", width: 30 },
     ];
-
-    const mergedData = [];
-    for (let i = 0; i < allData.length; i++) {
-      const stats = allData[i];
-      const matchEvents = events[i];
-      stats.forEach((stat, idx) => {
-        mergedData.push({
-          label: stat.label,
-          home: stat.home,
-          away: stat.away,
-          time: matchEvents[idx]?.time || null,
-          player: matchEvents[idx]?.player || null,
-          event: matchEvents[idx]?.event || null,
-        });
-      });
-    }
 
     mergedData.forEach((data) => {
       worksheet.addRow(data);
@@ -162,12 +241,16 @@ app.get("/scrape", async (req, res) => {
     const filePath = "./statystyki.xlsx";
     await workbook.xlsx.writeFile(filePath);
 
+    console.log("Dane zapisane do pliku:", filePath);
     res.download(filePath);
   } catch (err) {
     console.error("Błąd podczas przetwarzania:", err.message);
     res.status(500).send("Wystąpił błąd.");
   }
 });
+
+
+
 
 app.listen(PORT, () => {
   console.log(`Serwer działa na porcie ${PORT}`);
